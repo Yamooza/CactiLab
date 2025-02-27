@@ -1,126 +1,81 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(Rigidbody))]
-public class FirstPersonController : MonoBehaviour
+[RequireComponent(typeof(CharacterController))]
+public class Movement : MonoBehaviour
 {
-    [Header("Base Movement")]
-    [SerializeField] float moveSpeed = 5f;
-    [SerializeField] float lookSpeedX = 2f;
-    [SerializeField] float lookSpeedY = 2f;
-    [SerializeField] float upDownRange = 60f;
-    [SerializeField] float jumpForce = 400f;
+    public Camera playerCamera;
+    public float walkSpeed = 20f;
+    public float runSpeed = 35f;
+    public float jumpPower = 7f;
+    public float gravity = 10f;
+    public float lookSpeed = 2f;
+    public float lookXLimit = 45f;
+    public float defaultHeight = 2f;
+    public float crouchHeight = 1f;
+    public float crouchSpeed = 3f;
 
-    [Header("Lean Limits")]
-    [SerializeField] float minLeanAngle = -30f; // Minimum lean angle
-    [SerializeField] float maxLeanAngle = 30f;  // Maximum lean angle
+    private Vector3 moveDirection = Vector3.zero;
+    private float rotationX = 0;
+    private CharacterController characterController;
 
-    [Header("Ground Check")]
-    [SerializeField] float groundDist;
-    [SerializeField] LayerMask groundLayers;
-
-    private Rigidbody rb;
-    private Camera playerCamera;
-    private float rotationX = 0f;
-    private float leanX = 0f; // New variable for lean
-    Vector3 moveDir;
-    bool isGrounded = false;
-    bool canMove;
-
-    private bool isInventoryOpen = false; // New variable to track inventory state
+    private bool canMove = true;
 
     void Start()
     {
-        GameManager.Instance.Player = this.gameObject;
-
-        rb = GetComponent<Rigidbody>();
-        playerCamera = Camera.main;
-
-        canMove = true;
-
-        // Initially hide the cursor
+        characterController = GetComponent<CharacterController>();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
     void Update()
     {
-        // Toggle inventory and movement
-        if (Input.GetKeyDown(KeyCode.I))
-        {
-            isInventoryOpen = !isInventoryOpen; // Toggle inventory state
-            canMove = !isInventoryOpen; // Update CanMove based on inventory state
-            UIManager.Instance.ToggleInventory(isInventoryOpen); // Toggle inventory UI
+        Vector3 forward = transform.TransformDirection(Vector3.forward);
+        Vector3 right = transform.TransformDirection(Vector3.right);
 
-            // Update cursor visibility and lock state
-            if (isInventoryOpen)
-            {
-                Cursor.lockState = CursorLockMode.None; // Unlock cursor
-                Cursor.visible = true; // Show cursor
-            }
-            else
-            {
-                Cursor.lockState = CursorLockMode.Locked; // Lock cursor
-                Cursor.visible = false; // Hide cursor
-            }
+        bool isRunning = Input.GetKey(KeyCode.LeftShift);
+        float curSpeedX = canMove ? (isRunning ? runSpeed : walkSpeed) * Input.GetAxis("Vertical") : 0;
+        float curSpeedY = canMove ? (isRunning ? runSpeed : walkSpeed) * Input.GetAxis("Horizontal") : 0;
+        float movementDirectionY = moveDirection.y;
+        moveDirection = (forward * curSpeedX) + (right * curSpeedY);
+
+        if (Input.GetButton("Jump") && canMove && characterController.isGrounded)
+        {
+            moveDirection.y = jumpPower;
         }
+        else
+        {
+            moveDirection.y = movementDirectionY;
+        }
+
+        if (!characterController.isGrounded)
+        {
+            moveDirection.y -= gravity * Time.deltaTime;
+        }
+
+        if (Input.GetKey(KeyCode.LeftControl) && canMove)
+        {
+            characterController.height = crouchHeight;
+            walkSpeed = crouchSpeed;
+            runSpeed = crouchSpeed;
+
+        }
+        else
+        {
+            characterController.height = defaultHeight;
+            walkSpeed = 20f;
+            runSpeed = 35f;
+        }
+
+        characterController.Move(moveDirection * Time.deltaTime);
 
         if (canMove)
         {
-            GroundCheck();
-            HandleLookRotation();
-            HandleMovement();
-            HandleJump();
+            rotationX += -Input.GetAxis("Mouse Y") * lookSpeed;
+            rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);
+            playerCamera.transform.localRotation = Quaternion.Euler(rotationX, 0, 0);
+            transform.rotation *= Quaternion.Euler(0, Input.GetAxis("Mouse X") * lookSpeed, 0);
         }
     }
-
-    private void FixedUpdate()
-    {
-        rb.linearVelocity = moveDir; // Use rb.velocity instead of rb.linearVelocity
-    }
-
-    #region Movement Handlers
-
-    void GroundCheck()
-    {
-        isGrounded = Physics.Raycast(transform.position, Vector3.down, groundDist, groundLayers);
-    }
-
-    void HandleJump()
-    {
-        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
-        {
-            rb.AddForce(Vector3.up * jumpForce);
-        }
-    }
-
-    void HandleMovement()
-    {
-        moveDir.x = Input.GetAxis("Horizontal") * moveSpeed;
-        moveDir.z = Input.GetAxis("Vertical") * moveSpeed;
-
-        Vector3 moveClamp = transform.right * moveDir.x + transform.forward * moveDir.z;
-
-        moveDir = Vector3.ClampMagnitude(moveClamp, moveSpeed);
-        moveDir.y = rb.linearVelocity.y; // Use rb.velocity instead of rb.linearVelocity
-    }
-
-    void HandleLookRotation()
-    {
-        float mouseX = Input.GetAxis("Mouse X") * lookSpeedX;
-        float mouseY = Input.GetAxis("Mouse Y") * lookSpeedY;
-
-        rotationX -= mouseY;
-        rotationX = Mathf.Clamp(rotationX, -upDownRange, upDownRange);
-
-        playerCamera.transform.localRotation = Quaternion.Euler(rotationX, 0, 0);
-
-        // Leaning logic
-        leanX -= mouseY; // Adjust lean based on mouse Y input
-        leanX = Mathf.Clamp(leanX, minLeanAngle, maxLeanAngle); // Clamp the lean angle
-
-        // Apply the lean to the player's transform
-        transform.localRotation = Quaternion.Euler(leanX, transform.localEulerAngles.y, 0);
-        transform.Rotate(Vector3.up * mouseX);
-    }
-    #endregion
 }
